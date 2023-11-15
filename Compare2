@@ -1,0 +1,276 @@
+
+
+import openai
+from openai import OpenAI
+import base64
+import requests
+import os
+import json
+import urllib.request
+import datetime
+import sys
+
+# Function to encode the image
+def encode_image(image):
+    with open(image, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+# Function to describe an image
+def describe_image(image):
+    base64_image_source = encode_image(image)
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    payload = {
+        "model": "gpt-4-vision-preview",
+        "messages": [
+        {
+            "role": "user",
+            "content": [
+            {
+                "type": "text",
+                "text": "Describe the image in as much detail as possible."
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                "url": f"data:image/jpeg;base64,{base64_image_source}"
+                }
+            }
+            ]
+        }
+        ],
+        "max_tokens": 300
+    }
+    #send request
+    try:
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    except (openai.APITimeoutError, openai.APIError, openai.APIConnectionError,openai.InvalidRequestError,openai.AuthenticationError,openai.PermissionError,openai.RateLimitError) as e:
+        error_handler(e)
+        pass
+    data_dict = json.loads(response.text)
+    #Return the prompt
+    return data_dict['choices'][0]['message']['content'] 
+
+# Function to compare two images
+def compare_images(image1,image2):
+    print(image1)
+    print(image2)
+
+    # Getting the base64 string
+    base64_image_source = encode_image(image1)
+    # Getting the base64 string
+    base64_image_target = encode_image(image2)
+   
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    payload = {
+        "model": "gpt-4-vision-preview",
+        "messages": [
+        {
+            "role": "user",
+            "content": [
+            {
+                "type": "text",
+                "text": "Provide a detailed description of the first and second image, focusing on elements such as objects, colors, and layout. Compare the two images, highlighting the key similarities and differences. Discuss the mood or style each image conveys. Specifically describe the differences in the second image and suggest how the second image could be changed to more closely resemble the first."
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                "url": f"data:image/jpeg;base64,{base64_image_source}"
+                }
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                "url": f"data:image/jpeg;base64,{base64_image_target}"
+                }
+            }
+            ],
+        }
+        ],
+        "max_tokens": 300
+        
+    }
+
+    #send request
+    try:
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    except (openai.APITimeoutError, openai.APIError, openai.APIConnectionError,openai.InvalidRequestError,openai.AuthenticationError,openai.PermissionError,openai.RateLimitError) as e:
+        error_handler(e)
+        pass
+
+    
+    data_dict = json.loads(response.text)
+    print(response.json())
+    #Return the prompt
+    return data_dict['choices'][0]['message']['content'] 
+
+# Function to generate the image based on the prompt
+def generate_image(prompt):
+    try:
+        response = client.images.generate(
+        model="dall-e-3",
+        prompt=prompt,
+        size="1024x1024",
+        quality="standard",
+        n=1,
+        )
+    except (openai.APITimeoutError, openai.APIError, openai.APIConnectionError,openai.InvalidRequestError,openai.AuthenticationError,openai.PermissionError,openai.RateLimitError) as e:
+        error_handler(e)
+        pass
+    #Return the image url
+    return response.data[0].url
+
+#Function to download the image
+def download_image(image_url,i):
+    # Prepare file name
+    now = datetime.datetime.now()
+    date_time = now.strftime("%m%d%Y%H%M%S")
+    target_image = "./" + date_time + "-render-" + str(i) + ".jpg"
+
+    #download image
+    urllib.request.urlretrieve(image_url, target_image )
+    return target_image
+
+#function to build the next prompt
+def build_prompt(compare, first_prompt):
+    
+    print("In prompt builder \n")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    payload = {
+        "model": "gpt-4-vision-preview",
+        "messages": [
+        {
+            "role": "user",
+            "content": [
+            {
+                "type": "text",
+                "text": "An image was created based on this original prompt: " + first_prompt + "Update this firrt prompt for image generation based on the comparison between the source and the previous generation to make the two match better use as input this comparison do not reference either of the images since the generator will not have access to either: " + compare                
+                }
+          
+            ],
+        }
+        ],
+        "max_tokens": 300
+        
+    }
+    try:
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    except (openai.TimeoutError, openai.APIError, openai.APIConnectionError,openai.InvalidRequestError,openai.AuthenticationError,openai.PermissionError,openai.RateLimitError) as e:
+        error_handler(e)
+        pass
+
+    
+    data_dict = json.loads(response.text)
+    #Return the prompt
+    return data_dict['choices'][0]['message']['content'] 
+
+
+
+#Function to handle errors
+def error_handler(e):
+    if isinstance(e, openai.APITimeoutError):
+        #Handle timeout error, e.g. retry or log
+        print(f"OpenAI API request timed out: {e}")
+        sys.exit(1)
+        pass
+    elif isinstance(e, openai.APIError):
+        #Handle API error, e.g. retry or log
+        print(f"OpenAI API returned an API Error: {e}")
+        sys.exit(1)
+        pass
+    elif isinstance(e, openai.APIConnectionError):
+        #Handle connection error, e.g. check network or log
+        print(f"OpenAI API request failed to connect: {e}")
+        sys.exit(1)
+        pass
+    elif isinstance(e, openai.InvalidRequestError):
+        #Handle invalid request error, e.g. validate parameters or log
+        print(f"OpenAI API request was invalid: {e}")
+        sys.exit(1)
+        pass
+    elif isinstance(e, openai.AuthenticationError):
+        #Handle authentication error, e.g. check credentials or log
+        print(f"OpenAI API request was not authorized: {e}")
+        sys.exit(1)
+        pass
+    elif isinstance(e, openai.PermissionError):
+        #Handle permission error, e.g. check scope or log
+        print(f"OpenAI API request was not permitted: {e}")
+        sys.exit(1)
+        pass
+    elif isinstance(e, openai.RateLimitError):
+        #Handle rate limit error, e.g. wait or log
+        print(f"OpenAI API request exceeded rate limit: {e}")
+        sys.exit(1)
+        pass   
+    
+    
+###############################################################################
+
+# Get API key from shell
+api_key = os.environ.get('OPENAI_API_KEY')
+
+client = OpenAI()
+
+# Path to your image
+source_image = "./Source.jpg"
+
+# Check that the image exists
+if not os.path.exists(source_image):
+    print("The image does not exist")
+    exit()
+
+#Describe the source image
+first_prompt = describe_image(source_image)
+
+# print the prompt
+print("The prompt for the initial generation: " + first_prompt,flush=True)
+
+#Generate the first iteration based on the prompt
+image_url = generate_image(first_prompt)
+
+#download image
+target_image = download_image(image_url,0)
+
+# execute the following 10 times to get 10 different images
+for i in range(10):
+    # compare the two images
+    compare = compare_images(source_image, target_image)
+  
+    # print the iteration we are in
+    print("Iteration: " + str(i))
+    print(compare,flush=True)
+
+    prompt = build_prompt(compare, first_prompt)
+
+    # print the prompt
+    print("The prompt for the next generation: " + prompt,flush=True)
+    
+    # add prompt to a file
+    f = open("prompt.txt", "a")
+    f.write(prompt + "\n")
+    f.close()
+
+    #Generate the next iteration based on the prompt
+    image_url = generate_image(prompt)
+
+    #download image
+    target_image = download_image(image_url,i)
+
+    #sleep 5 seconds
+    import time
+    time.sleep(5)
+
